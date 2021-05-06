@@ -3,7 +3,8 @@ from flask import Flask
 from flask_restful import Api, Resource, reqparse, abort
 from flask_sqlalchemy import SQLAlchemy
 from flask_marshmallow import Marshmallow
-
+from flask_bcrypt import Bcrypt
+from flask_bcrypt import generate_password_hash, check_password_hash
 
 # init app
 app = Flask(__name__)
@@ -14,6 +15,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL') or \
 SQLALCHEMY_TRACK_MODIFICATIONS = False
 db = SQLAlchemy(app)
 ma = Marshmallow(app)
+bcrypt = Bcrypt(app)
 
 
 class ToDo(db.Model):
@@ -21,6 +23,20 @@ class ToDo(db.Model):
     title = db.Column(db.String(100), nullable=False, index=True)
     description = db.Column(db.String(200), default="", index=True)
     status = db.Column(db.Boolean, default=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+
+
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key= True)
+    username = db.Column(db.String(32), index=True, unique=True)
+    password_hash = db.Column(db.String(128))
+    tasks = db.relationship('ToDo', backref='author', lazy='dynamic')
+
+    def hash_password(self, password):
+        self.password_hash = generate_password_hash(password).decode('utf8')
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
 
 
 # schema
@@ -38,6 +54,16 @@ class ToDoSchema(ma.Schema):
 
 to_do_schema = ToDoSchema()
 to_dos_schema = ToDoSchema(many=True)
+
+
+# user schema
+class UserSchema(ma.Schema):
+    class Meta:
+        fields = ('username',)
+
+
+user_schema = UserSchema()
+users_schema = UserSchema(many=True)
 
 
 # shows a list of all todos, and lets you POST to add new tasks
@@ -99,8 +125,29 @@ class Todo(Resource):
         return {'result': True}, 204
 
 
+class SignUp(Resource):
+
+    def __init__(self):
+        self.reqparse = reqparse.RequestParser()
+        self.reqparse.add_argument('username', type=str,
+                                   location='json', required=True, help="Username is required")
+        self.reqparse.add_argument('password', type=str, location='json', required=True, help="password is required")
+        super(SignUp, self).__init__()
+
+    def post(self):
+        args = self.reqparse.parse_args()
+        if User.query.filter_by(username=args['username']).first() is not None:
+            abort(400, message="existing user")  # existing user
+        new_user = User(username=args['username'])
+        new_user.hash_password(args['password'])
+        db.session.add(new_user)
+        db.session.commit()
+        return user_schema.dump(new_user), 200
+
+
 api.add_resource(TodoList, '/todo/api/v1.0/tasks', endpoint='tasks')
 api.add_resource(Todo, '/todo/api/v1.0/tasks/<int:id>', endpoint='task')
+api.add_resource(SignUp, '/todo/api/v1.0/users/signup', endpoint='user')
 
 
 # run server
