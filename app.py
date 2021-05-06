@@ -115,15 +115,15 @@ class Todo(Resource):
             abort(404, message="could not find a task with that id")
         return to_do_schema.dump(task), 201
 
-    @jwt_required
+    @jwt_required()
     def put(self, task_id):
-        user_id = get_jwt_identity()
-        user = User.query.filter_by(id=user_id).first()
         task = ToDo.query.filter_by(id=task_id).first()
-        if task.author is not user:
-            abort(404, message="can only edit your own task")
         if task is None:
             abort(404, message="could not find a task with that id")
+        user_id = get_jwt_identity()
+        user = User.query.filter_by(id=user_id).first()
+        if task.author is not user:
+            abort(404, message="can only edit your own task")
         args = self.reqparse.parse_args()
         task.title = args['title'] or task.title
         task.description = args['description'] or task.description
@@ -131,7 +131,7 @@ class Todo(Resource):
         db.session.commit()
         return to_do_schema.dump(task), 201
 
-    @jwt_required
+    @jwt_required()
     def delete(self, task_id):
         user_id = get_jwt_identity()
         user = User.query.filter_by(id=user_id).first()
